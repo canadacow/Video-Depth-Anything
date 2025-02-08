@@ -70,17 +70,51 @@ def read_video_frames(video_path, process_length, target_fps=-1, max_res=-1):
 
 
 def save_video(frames, output_video_path, fps=10, is_depths=False):
-    writer = imageio.get_writer(output_video_path, fps=fps, macro_block_size=1, codec='libx264', ffmpeg_params=['-crf', '18'])
+    import ffmpeg
+    
     if is_depths:
-        colormap = np.array(cm.get_cmap("inferno").colors)
+        # Scale depth frames to 10-bit range
+        frames = frames.astype(np.float32)
         d_min, d_max = frames.min(), frames.max()
-        for i in range(frames.shape[0]):
-            depth = frames[i]
-            depth_norm = ((depth - d_min) / (d_max - d_min) * 255).astype(np.uint8)
-            depth_vis = (colormap[depth_norm] * 255).astype(np.uint8)
-            writer.append_data(depth_vis)
+        print(f"Depth range - Min: {d_min:.4f}, Max: {d_max:.4f}")
+        frames = ((frames - d_min) / (d_max - d_min) * 65535).astype(np.uint16)
+        
+        # Create temporary raw file
+        raw_file = output_video_path + '.raw'
+        frames.tofile(raw_file)
+        
+        # Setup ffmpeg stream
+        stream = (
+            ffmpeg
+            .input('pipe:', format='rawvideo', pix_fmt='gray16le',
+                  s=f'{frames.shape[2]}x{frames.shape[1]}', r=fps)
+            .output(output_video_path, 
+                   pix_fmt='yuv420p10le',
+                   crf=18,
+                   vcodec='libx265',
+                   **{'x265-params': 'lossless=1'})
+            .overwrite_output()
+        )
+        
+        # Run ffmpeg with raw input
+        with open(raw_file, 'rb') as raw:
+            stream.run(input=raw.read())
+            
+        # Clean up temporary file
+        import os
+        os.remove(raw_file)
+        
     else:
+        # For regular 8-bit frames, use original imageio implementation
+        writer = imageio.get_writer(
+            output_video_path,
+            fps=fps,
+            macro_block_size=1,
+            codec='libx265',
+            ffmpeg_params=['-crf', '18'],
+            pixelformat='yuv420p'
+        )
+        
         for i in range(frames.shape[0]):
             writer.append_data(frames[i])
-
-    writer.close()
+        writer.close()

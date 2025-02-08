@@ -11,3 +11,4 @@ xformers
 einops
 easydict
 tqdm
+ffmpeg-python
