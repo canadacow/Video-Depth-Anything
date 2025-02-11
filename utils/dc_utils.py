@@ -98,7 +98,14 @@ def save_video(frames, output_video_path, fps=10, is_depths=False):
         
         # Run ffmpeg with raw input
         with open(raw_file, 'rb') as raw:
-            stream.run(input=raw.read())
+            process = stream.run_async(pipe_stdin=True)
+            while True:
+                data = raw.read(16* 1024 * 1024)
+                if not data:
+                    break
+                process.stdin.write(data)
+            process.stdin.close()
+            process.wait()
             
         # Clean up temporary file
         import os
